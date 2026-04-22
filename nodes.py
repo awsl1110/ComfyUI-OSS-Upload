@@ -1,6 +1,6 @@
 import os
 import re
-import time
+import mimetypes
 import random
 import string
 import tempfile
@@ -12,7 +12,10 @@ from PIL import Image
 
 import alibabacloud_oss_v2 as oss
 
-import scipy.io.wavfile as _wav
+try:
+    import scipy.io.wavfile as _wav
+except ImportError:
+    _wav = None
 
 
 _ENDPOINT_RE = re.compile(r"oss-([a-z0-9-]+?)(?:-internal)?\.aliyuncs\.com")
@@ -29,11 +32,10 @@ def _resolve_region(endpoint: str, region: str) -> str:
 
 
 def _get_oss_client(region: str, access_key_id: str, access_key_secret: str, endpoint: str = ""):
-    if oss is None:
-        raise RuntimeError("alibabacloud_oss_v2 is not installed. Run: pip install alibabacloud-oss-python-sdk-v2")
     credentials_provider = oss.credentials.StaticCredentialsProvider(access_key_id, access_key_secret)
     cfg = oss.config.load_default()
     cfg.credentials_provider = credentials_provider
+    cfg.retry_max_attempts = 3
     ep = endpoint.strip()
     if ep:
         cfg.endpoint = ep
@@ -54,19 +56,6 @@ def _make_key(oss_path: str, use_random: bool, filename: str, ext: str) -> str:
     fname = _random_filename(ext) if use_random or not filename.strip() else filename.strip()
     return str(PurePosixPath(oss_path.strip("/")) / fname)
 
-
-def _upload_with_retry(client, bucket: str, key: str, filepath: str, max_retries: int = 10) -> None:
-    for attempt in range(max_retries):
-        try:
-            client.put_object_from_file(
-                oss.PutObjectRequest(bucket=bucket, key=key),
-                filepath,
-            )
-            return
-        except Exception as e:
-            if attempt == max_retries - 1:
-                raise RuntimeError(f"OSS upload failed after {max_retries} attempts: {e}") from e
-            time.sleep(3)
 
 
 def _build_url(endpoint: str, region: str, bucket: str, key: str) -> str:
@@ -126,7 +115,10 @@ class OSSImageUploader:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = os.path.join(tmpdir, os.path.basename(key))
             pil_img.save(tmp_path, format="PNG")
-            _upload_with_retry(client, bucket, key, tmp_path)
+            client.put_object_from_file(
+                oss.PutObjectRequest(bucket=bucket, key=key, content_type="image/png"),
+                tmp_path,
+            )
 
         return (_build_url(endpoint, region, bucket, key),)
 
@@ -157,7 +149,10 @@ class OSSVideoUploader:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = os.path.join(tmpdir, os.path.basename(key))
             video.save_to(tmp_path, format=Types.VideoContainer(fmt), codec="auto", metadata=None)
-            _upload_with_retry(client, bucket, key, tmp_path)
+            client.uploader().upload_file(
+                oss.PutObjectRequest(bucket=bucket, key=key, content_type=mimetypes.guess_type(tmp_path)[0]),
+                tmp_path,
+            )
 
         return (_build_url(endpoint, region, bucket, key),)
 
@@ -197,7 +192,10 @@ class OSSAudioUploader:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = os.path.join(tmpdir, os.path.basename(key))
             _wav.write(tmp_path, sample_rate, audio_data)
-            _upload_with_retry(client, bucket, key, tmp_path)
+            client.uploader().upload_file(
+                oss.PutObjectRequest(bucket=bucket, key=key, content_type="audio/wav"),
+                tmp_path,
+            )
 
         return (_build_url(endpoint, region, bucket, key),)
 
@@ -230,7 +228,10 @@ class OSSFileUploader:
         ext = os.path.splitext(file_path)[1].lstrip(".")
         key = _make_key(oss_path, random_filename, filename, ext)
         client = _get_oss_client(region, access_key_id, access_key_secret, endpoint)
-        _upload_with_retry(client, bucket, key, file_path)
+        client.uploader().upload_file(
+            oss.PutObjectRequest(bucket=bucket, key=key, content_type=mimetypes.guess_type(file_path)[0]),
+            file_path,
+        )
 
         return (_build_url(endpoint, region, bucket, key),)
 
