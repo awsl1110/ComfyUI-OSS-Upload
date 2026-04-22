@@ -1,0 +1,2 @@
+alibabacloud_oss_v2
+numpy
