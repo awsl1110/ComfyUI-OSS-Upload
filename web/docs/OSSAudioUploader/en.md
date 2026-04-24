@@ -9,14 +9,11 @@ The audio waveform is encoded as **WAV** (32-bit float, preserving the original 
 | Parameter | Type | Description |
 |---|---|---|
 | `audio` | AUDIO | Input audio dict containing `waveform` (tensor) and `sample_rate` |
-| `region` | STRING | OSS region code, e.g. `cn-hangzhou`, `us-west-1` |
-| `endpoint` | STRING | Custom endpoint URL. Leave blank to auto-build the standard endpoint from `region`. Use this for VPC internal endpoints or CDN/CNAME custom domains |
-| `bucket` | STRING | Target OSS bucket name |
-| `access_key_id` | STRING | Alibaba Cloud RAM AccessKey ID |
-| `access_key_secret` | STRING | Alibaba Cloud RAM AccessKey Secret |
+| `oss_connection` | OSS_CONNECTION | Connection from the **OSS Login** node |
 | `oss_path` | STRING | Key prefix (folder path) inside the bucket, e.g. `comfyui/audio/` |
-| `random_filename` | BOOLEAN | When **True**, generates a unique filename with timestamp + random suffix. When **False**, the `filename` field is used |
-| `filename` | STRING | Custom filename (only applied when `random_filename` is disabled). Include the extension, e.g. `output.wav` |
+| `random_filename` | BOOLEAN | When **True**, generates a unique filename with timestamp + random suffix. When **False**, the `filename` field is used. Ignored when `skip_duplicate` is enabled |
+| `filename` | STRING | Custom filename (only applied when `random_filename` is disabled and `skip_duplicate` is off). Include the extension, e.g. `output.wav` |
+| `skip_duplicate` | BOOLEAN | When **True**, computes a SHA-256 hash of the audio and skips the upload if identical content already exists in OSS. The existing URL is returned immediately. Requires `oss:GetObject` permission |
 
 ## Outputs
 
@@ -28,8 +25,8 @@ The audio waveform is encoded as **WAV** (32-bit float, preserving the original 
 
 - Requires `scipy` to be installed (`pip install scipy`).
 - Requires the bucket to allow public read, or use a signed URL / CDN in front of OSS for private buckets.
-- Upload is retried up to **10 times** with a 3-second delay on failure.
-- Audio is always saved as WAV regardless of the `filename` extension for consistency.
+- When `skip_duplicate` is **True**, the object key is `<oss_path>/<sha256>.wav` (content-addressed). `random_filename` and `filename` have no effect.
+- Audio is always saved as WAV regardless of the `filename` extension.
 
 ## Usage Example
 
